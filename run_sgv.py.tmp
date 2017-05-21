@@ -1,0 +1,37 @@
+"""
+Gilad Sharir (gilad@visualead.com)
+
+"""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+
+import os
+import sys
+from PIL import Image
+import numpy as np
+import cv2
+import tensorflow as tf
+slim = tf.contrib.slim
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+# Import OSVOS files
+root_folder = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(os.path.join(os.path.abspath(root_folder),"osvos-tf"))
+import osvos
+from dataset import Dataset
+
+#Import FasterRCNN files
+import _init_paths
+from model.config import cfg
+from model.test import im_detect
+from model.nms_wrapper import nms
+
+from utils.timer import Timer
+import argparse
+
+from nets.vgg16 import vgg16
+from nets.resnet_v1 import resnetv1
+
