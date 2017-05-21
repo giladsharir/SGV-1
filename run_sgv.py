@@ -183,6 +183,16 @@ def faster_rcnn(sess, net, image_name):
 
 
 
+def semantic_selection():
+    """select the class and bounding box that has the most overlap with the 
+    ground truth of the first frame
+    """
+
+def classify_fg_bk(sess, mask, box):
+    """given a bounding box and a forground mask, segment the specific object
+     inside the box that was selected in the first frame
+     """
+
 
 
 
@@ -285,6 +295,7 @@ def sgv_test(sess, dataset, demonet, checkpoint_file, tfmodel, result_path, conf
         NMS_THRESH = 0.3
 
 
+        classify_fg_bk(sess, mask, boxes)
         #save the mask + detections overlay
         fig, ax = plt.subplots(figsize=(12, 12))
         # vis_masks(img[0], mask, ax)
