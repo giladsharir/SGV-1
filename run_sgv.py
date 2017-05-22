@@ -182,18 +182,66 @@ def faster_rcnn(sess, net, image_name):
         vis_detections(im, ax, image_name, cls, dets, thresh=CONF_THRESH)
 
 
-
-def semantic_selection():
-    """select the class and bounding box that has the most overlap with the 
-    ground truth of the first frame
-    """
-
 def classify_fg_bk(sess, mask, box):
     """given a bounding box and a forground mask, segment the specific object
      inside the box that was selected in the first frame
      """
 
 
+def compute_ss_score(mask, bbox):
+    """compute semantic selection score of the bbox given the ground truth mask
+    """
+    #option 1 IoU  - (might not be the best in case there are multiple classes in the ground truth mask)
+    mask2 = np.zeros_like(mask)
+    mask2[]
+    plt.Rectangle
+    return score
+
+
+def semantic_selection(gt_msk, boxes, scores, NMS_THRESH=0.3, thresh=0.8, ss_thresh=0.8):
+    """find the bbox that best fits the ground truth mask
+    return the class label and the box
+    """
+
+    selected_classes = np.zeros((len(CLASSES), 1))
+    selected_bboxes = np.zeros((len(CLASSES), 4))
+    for cls_ind, cls in enumerate(CLASSES[1:]):
+        cls_ind += 1  # because we skipped background
+        cls_boxes = boxes[:, 4 * cls_ind:4 * (cls_ind + 1)]
+        cls_scores = scores[:, cls_ind]
+        dets = np.hstack((cls_boxes,
+                          cls_scores[:, np.newaxis])).astype(np.float32)
+        keep = nms(dets, NMS_THRESH)
+        dets = dets[keep, :]
+        # vis_detections_masks(image, mask, ax, curr_frame, cls, dets, thresh=CONF_THRESH)
+
+        inds = np.where(dets[:, -1] >= thresh)[0]
+        ss_score = np.zeros((len(dets), 1))
+        for i in inds:
+            bbox = dets[i, :4]
+            score = dets[i, -1]
+            # compute intersection cost
+            ss_score[i] = compute_ss_score(gt_msk, bbox)
+
+        if np.max(ss_score) > ss_thresh:
+            ind = np.argmax(ss_score)
+            selected_classes[cls_ind] = 1
+            selected_bboxes[cls_ind] = dets[ind]
+
+
+
+            # ax.add_patch(
+            #     plt.Rectangle((bbox[0], bbox[1]),
+            #                   bbox[2] - bbox[0],
+            #                   bbox[3] - bbox[1], fill=False,
+            #                   edgecolor='red', linewidth=3.5)
+            # )
+            # ax.text(bbox[0], bbox[1] - 2,
+            #         '{:s} {:.3f}'.format(class_name, score),
+            #         bbox=dict(facecolor='blue', alpha=0.5),
+            #         fontsize=14, color='white')
+
+    return selected_bboxes, selected_classes
 
 
 def sgv_test(sess, dataset, demonet, checkpoint_file, tfmodel, result_path, config=None):
@@ -270,6 +318,16 @@ def sgv_test(sess, dataset, demonet, checkpoint_file, tfmodel, result_path, conf
     # saver.restore(sess, tfmodel)
 
     print('Loaded network {:s}'.format(tfmodel))
+
+
+    #semantic selection using first frame
+    dataset.reset_iter()
+    imgs, labels = dataset.next_batch(batch_size, 'train')
+    gt_msk = labels[0]
+    img = imgs[...,(2,1,0)]
+    scores, boxes = im_detect(sess, net_rcnn, img)
+    semantic_selection(gt_msk, boxes, scores, 0.3, 0.8)
+
 
     dataset.reset_iter()
     for frame in range(0, dataset.get_test_size()):
@@ -368,9 +426,6 @@ if __name__ == '__main__':
     #     with tf.device('/gpu:' + str(gpu_id)):
             # with tf.Session(config=tfconfig) as sess:
 
-
-
-
     process_osvos = True
     if process_osvos:
         #OSVOS test
@@ -411,7 +466,6 @@ if __name__ == '__main__':
 
         # tf.reset_default_graph()
 
-
         # with g.as_default():
         #     with tf.device('/gpu:' + str(gpu_id)):
         #         with tf.Session(config=tfconfig) as sess:
@@ -431,24 +485,3 @@ if __name__ == '__main__':
             # faster_rcnn(sess, net_rcnn, im_name)
             plt.savefig(im_name.split('.')[0] + ".png")
 
-
-            # Show results
-    # overlay_color = [255, 0, 0]
-    # transparency = 0.6
-    # plt.ion()
-    # outputpath = "output"
-    # for img_p in test_frames:
-    #     frame_num = img_p.split('.')[0]
-    #     img = np.array(Image.open(os.path.join('osvos-tf', 'DAVIS', 'JPEGImages', '480p', seq_name, img_p)))
-    #     mask = np.array(Image.open(os.path.join(result_path, frame_num+'.png')))
-    #     mask = mask/np.max(mask)
-    #     im_over = np.ndarray(img.shape)
-    #     im_over[:, :, 0] = (1 - mask) * img[:, :, 0] + mask * (overlay_color[0]*transparency + (1-transparency)*img[:, :, 0])
-    #     im_over[:, :, 1] = (1 - mask) * img[:, :, 1] + mask * (overlay_color[1]*transparency + (1-transparency)*img[:, :, 1])
-    #     im_over[:, :, 2] = (1 - mask) * img[:, :, 2] + mask * (overlay_color[2]*transparency + (1-transparency)*img[:, :, 2])
-    #     plt.imshow(im_over.astype(np.uint8))
-    #     plt.axis('off')
-    #     # plt.show()
-    #     plt.pause(0.01)
-    #     plt.savefig(os.path.join(outputpath,frame_num + ".png"))
-    #     plt.clf()
