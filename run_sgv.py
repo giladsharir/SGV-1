@@ -191,20 +191,25 @@ def classify_fg_bk(sess, mask, box):
 def compute_ss_score(mask, bbox):
     """compute semantic selection score of the bbox given the ground truth mask
     """
+    mask = mask > 0
     #option 1 IoU  - (might not be the best in case there are multiple classes in the ground truth mask)
     mask2 = np.zeros_like(mask)
-    mask2[]
-    plt.Rectangle
+    xv, yv = np.meshgrid(np.linspace(0,mask.shape[1]-1,mask.shape[1]),np.linspace(0,mask.shape[0]-1,mask.shape[0]))
+    mask2[np.multiply(np.multiply(yv < bbox[3], yv > bbox[1]), np.multiply(xv < bbox[2], xv > bbox[0])) > 0] = 1
+
+    intersect = float(np.sum(np.multiply(mask2,mask)))
+    union = float(np.sum(mask) + np.sum(mask2) - intersect)
+    score = intersect / union
     return score
 
 
-def semantic_selection(gt_msk, boxes, scores, NMS_THRESH=0.3, thresh=0.8, ss_thresh=0.8):
+def semantic_selection(gt_msk, boxes, scores, NMS_THRESH=0.3, thresh=0.8, ss_thresh=0.5):
     """find the bbox that best fits the ground truth mask
     return the class label and the box
     """
 
     selected_classes = np.zeros((len(CLASSES), 1))
-    selected_bboxes = np.zeros((len(CLASSES), 4))
+    selected_bboxes = np.zeros((len(CLASSES), 5))
     for cls_ind, cls in enumerate(CLASSES[1:]):
         cls_ind += 1  # because we skipped background
         cls_boxes = boxes[:, 4 * cls_ind:4 * (cls_ind + 1)]
@@ -227,19 +232,6 @@ def semantic_selection(gt_msk, boxes, scores, NMS_THRESH=0.3, thresh=0.8, ss_thr
             ind = np.argmax(ss_score)
             selected_classes[cls_ind] = 1
             selected_bboxes[cls_ind] = dets[ind]
-
-
-
-            # ax.add_patch(
-            #     plt.Rectangle((bbox[0], bbox[1]),
-            #                   bbox[2] - bbox[0],
-            #                   bbox[3] - bbox[1], fill=False,
-            #                   edgecolor='red', linewidth=3.5)
-            # )
-            # ax.text(bbox[0], bbox[1] - 2,
-            #         '{:s} {:.3f}'.format(class_name, score),
-            #         bbox=dict(facecolor='blue', alpha=0.5),
-            #         fontsize=14, color='white')
 
     return selected_bboxes, selected_classes
 
@@ -324,9 +316,11 @@ def sgv_test(sess, dataset, demonet, checkpoint_file, tfmodel, result_path, conf
     dataset.reset_iter()
     imgs, labels = dataset.next_batch(batch_size, 'train')
     gt_msk = labels[0]
-    img = imgs[...,(2,1,0)]
+    img = imgs[0][...,(2,1,0)]
     scores, boxes = im_detect(sess, net_rcnn, img)
-    semantic_selection(gt_msk, boxes, scores, 0.3, 0.8)
+
+    #TODO: optimize the intersection threshold for semantic selection
+    selected_boxes, selected_cls = semantic_selection(gt_msk, boxes, scores, 0.3, 0.8)
 
 
     dataset.reset_iter()
@@ -351,6 +345,7 @@ def sgv_test(sess, dataset, demonet, checkpoint_file, tfmodel, result_path, conf
 
         CONF_THRESH = 0.8
         NMS_THRESH = 0.3
+
 
 
         classify_fg_bk(sess, mask, boxes)
@@ -437,7 +432,7 @@ if __name__ == '__main__':
         # Train parameters
         parent_path = os.path.join('osvos-tf', 'models', 'OSVOS_parent', 'OSVOS_parent.ckpt-50000')
         logs_path = os.path.join('osvos-tf', 'models', seq_name)
-        max_training_iters = 100
+        max_training_iters = 30
         # max_training_iters = 500
 
         # Define Dataset
