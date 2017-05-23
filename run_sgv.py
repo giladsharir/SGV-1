@@ -182,10 +182,51 @@ def faster_rcnn(sess, net, image_name):
         vis_detections(im, ax, image_name, cls, dets, thresh=CONF_THRESH)
 
 
-def classify_fg_bk(sess, mask, box):
+def semantic_propagation(mask, bboxes, scores, s_cls, s_boxes, ss_thresh):
     """given a bounding box and a forground mask, segment the specific object
      inside the box that was selected in the first frame
      """
+
+    mask2 = np.zeros_like(mask)
+    for c in np.where(s_cls)[0]:
+        dets, ss_score = get_class_bboxes(c, mask, bboxes, scores, 0.3, 0.8, 0.5)
+
+        #filter the mask with the selected bbox
+        if np.max(ss_score) > ss_thresh:
+            ind = np.argmax(ss_score)
+
+            mask2 = mask2 + bbox_to_mask(mask, dets[ind])
+
+    return np.multiply(mask2,mask > 0)
+
+def get_class_bboxes(cls_ind, mask, boxes, scores, NMS_THRESH, thresh, ss_thresh):
+
+    cls_boxes = boxes[:, 4 * cls_ind:4 * (cls_ind + 1)]
+    cls_scores = scores[:, cls_ind]
+    dets = np.hstack((cls_boxes,
+                      cls_scores[:, np.newaxis])).astype(np.float32)
+    keep = nms(dets, NMS_THRESH)
+    dets = dets[keep, :]
+    # vis_detections_masks(image, mask, ax, curr_frame, cls, dets, thresh=CONF_THRESH)
+
+    inds = np.where(dets[:, -1] >= thresh)[0]
+    ss_score = np.zeros((len(dets), 1))
+    for i in inds:
+        bbox = dets[i, :4]
+        score = dets[i, -1]
+        # compute intersection cost
+        ss_score[i] = compute_ss_score(mask, bbox)
+
+    return dets, ss_score
+
+def bbox_to_mask(mask, bbox):
+
+    mask2 = np.zeros_like(mask)
+    xv, yv = np.meshgrid(np.linspace(0, mask.shape[1] - 1, mask.shape[1]),
+                         np.linspace(0, mask.shape[0] - 1, mask.shape[0]))
+    mask2[np.multiply(np.multiply(yv < bbox[3], yv > bbox[1]), np.multiply(xv < bbox[2], xv > bbox[0])) > 0] = 1
+
+    return mask2
 
 
 def compute_ss_score(mask, bbox):
@@ -193,9 +234,7 @@ def compute_ss_score(mask, bbox):
     """
     mask = mask > 0
     #option 1 IoU  - (might not be the best in case there are multiple classes in the ground truth mask)
-    mask2 = np.zeros_like(mask)
-    xv, yv = np.meshgrid(np.linspace(0,mask.shape[1]-1,mask.shape[1]),np.linspace(0,mask.shape[0]-1,mask.shape[0]))
-    mask2[np.multiply(np.multiply(yv < bbox[3], yv > bbox[1]), np.multiply(xv < bbox[2], xv > bbox[0])) > 0] = 1
+    mask2 = bbox_to_mask(mask, bbox)
 
     intersect = float(np.sum(np.multiply(mask2,mask)))
     union = float(np.sum(mask) + np.sum(mask2) - intersect)
@@ -212,26 +251,13 @@ def semantic_selection(gt_msk, boxes, scores, NMS_THRESH=0.3, thresh=0.8, ss_thr
     selected_bboxes = np.zeros((len(CLASSES), 5))
     for cls_ind, cls in enumerate(CLASSES[1:]):
         cls_ind += 1  # because we skipped background
-        cls_boxes = boxes[:, 4 * cls_ind:4 * (cls_ind + 1)]
-        cls_scores = scores[:, cls_ind]
-        dets = np.hstack((cls_boxes,
-                          cls_scores[:, np.newaxis])).astype(np.float32)
-        keep = nms(dets, NMS_THRESH)
-        dets = dets[keep, :]
-        # vis_detections_masks(image, mask, ax, curr_frame, cls, dets, thresh=CONF_THRESH)
 
-        inds = np.where(dets[:, -1] >= thresh)[0]
-        ss_score = np.zeros((len(dets), 1))
-        for i in inds:
-            bbox = dets[i, :4]
-            score = dets[i, -1]
-            # compute intersection cost
-            ss_score[i] = compute_ss_score(gt_msk, bbox)
-
+        dets, ss_score = get_class_bboxes(cls_ind, gt_msk, boxes, scores,NMS_THRESH,thresh,ss_thresh)
         if np.max(ss_score) > ss_thresh:
             ind = np.argmax(ss_score)
             selected_classes[cls_ind] = 1
             selected_bboxes[cls_ind] = dets[ind]
+
 
     return selected_bboxes, selected_classes
 
@@ -343,12 +369,12 @@ def sgv_test(sess, dataset, demonet, checkpoint_file, tfmodel, result_path, conf
         timer.toc()
         print('Detection took {:.3f}s for {:d} object proposals'.format(timer.total_time, boxes.shape[0]))
 
+        new_mask = semantic_propagation(mask, boxes, scores, selected_cls, selected_boxes, 0.5)
+
         CONF_THRESH = 0.8
         NMS_THRESH = 0.3
 
 
-
-        classify_fg_bk(sess, mask, boxes)
         #save the mask + detections overlay
         fig, ax = plt.subplots(figsize=(12, 12))
         # vis_masks(img[0], mask, ax)
